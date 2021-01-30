@@ -1,7 +1,10 @@
+mod setup;
 use std::sync::{Arc, Mutex};
 
 #[test]
 fn other_thread() {
+    setup::init();
+
     let tid = Arc::new(Mutex::new(None));
     let tid_2 = tid.clone();
 
@@ -26,7 +29,6 @@ fn other_thread() {
 
     let panic_tid = {
         let tid = tid.lock().unwrap();
-        eprintln!("tid {:?}", tid);
         tid.expect("tid not set")
     };
 

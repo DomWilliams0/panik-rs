@@ -1,5 +1,9 @@
+mod setup;
+
 #[test]
 fn no_panic() {
+    setup::init();
+
     let result = panic::run_and_handle_panics(|| "nice");
 
     assert_eq!(result.to_owned(), Some("nice"));

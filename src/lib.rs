@@ -1,6 +1,5 @@
 use backtrace::Backtrace;
 
-use log::*;
 use parking_lot::Mutex;
 use std::borrow::Cow;
 use std::fmt::Debug;
@@ -53,8 +52,14 @@ fn register_panic(panic: &PanicInfo) {
         .map(|s| Cow::Borrowed(*s))
         .unwrap_or_else(|| Cow::from(format!("{}", panic)));
 
-    // TODO logging
-    // error!("handling panic"; "thread" => &thread, "message" => %message);
+    #[cfg(feature = "use-log")]
+    log::error!("handling panic on thread {}: '{}'", thread, message);
+
+    #[cfg(all(not(feature = "use-log"), not(feature = "use-slog")))]
+    eprintln!("handling panic on thread {}: '{}'", thread, message);
+
+    #[cfg(feature = "use-slog")]
+    slog_scope::error!("handling panic"; "thread" => &thread, "message" => %message);
 
     let backtrace = Backtrace::new_unresolved();
 
@@ -85,14 +90,35 @@ pub fn run_and_handle_panics<R: Debug>(do_me: impl FnOnce() -> R + UnwindSafe) -
             return Some(res);
         }
         (Ok(res), false) => {
-            // warn!("panic occurred in another thread, swallowing unpanicked result"; "result" => ?res);
+            #[cfg(feature = "use-log")]
+            log::warn!(
+                "panic occurred in another thread, swallowing unpanicked result: {:?}",
+                res
+            );
+
+            #[cfg(all(not(feature = "use-log"), not(feature = "use-slog")))]
+            eprintln!(
+                "panic occurred in another thread, swallowing unpanicked result: {:?}",
+                res
+            );
+
+            #[cfg(feature = "use-slog")]
+            slog_scope::warn!("panic occurred in another thread, swallowing unpanicked result"; "result" => ?res);
         }
         (Err(_), false) => {}
         (Err(_), true) => unreachable!(),
     };
 
     debug_assert!(!all_panics.is_empty());
-    // crit!("{count} threads panicked", count = all_panics.len());
+
+    #[cfg(feature = "use-log")]
+    log::info!("{count} threads panicked", count = all_panics.len());
+
+    #[cfg(all(not(feature = "use-log"), not(feature = "use-slog")))]
+    eprintln!("{count} threads panicked", count = all_panics.len());
+
+    #[cfg(feature = "use-slog")]
+    slog_scope::crit!("{count} threads panicked", count = all_panics.len());
 
     const BACKTRACE_RESOLUTION_LIMIT: usize = 8;
     for (
@@ -106,7 +132,20 @@ pub fn run_and_handle_panics<R: Debug>(do_me: impl FnOnce() -> R + UnwindSafe) -
     ) in all_panics.into_iter().enumerate()
     {
         if i == BACKTRACE_RESOLUTION_LIMIT {
-            warn!(
+            #[cfg(feature = "use-log")]
+            log::warn!(
+                "handling more than {limit} panics, no longer resolving backtraces",
+                limit = BACKTRACE_RESOLUTION_LIMIT
+            );
+
+            #[cfg(all(not(feature = "use-log"), not(feature = "use-slog")))]
+            eprintln!(
+                "handling more than {limit} panics, no longer resolving backtraces",
+                limit = BACKTRACE_RESOLUTION_LIMIT
+            );
+
+            #[cfg(feature = "use-slog")]
+            slog_scope::warn!(
                 "handling more than {limit} panics, no longer resolving backtraces",
                 limit = BACKTRACE_RESOLUTION_LIMIT
             );
@@ -115,12 +154,28 @@ pub fn run_and_handle_panics<R: Debug>(do_me: impl FnOnce() -> R + UnwindSafe) -
             backtrace.resolve();
         }
 
-        // crit!("panic";
-        // "backtrace" => ?backtrace,
-        // "message" => message,
-        // "thread" => thread,
-        // );
+        #[cfg(feature = "use-log")]
+        log::error!(
+            "panic on thread {:?}: {:?}\n{:?}",
+            thread,
+            message,
+            backtrace
+        );
+
+        #[cfg(all(not(feature = "use-log"), not(feature = "use-slog")))]
+        eprintln!(
+            "panic on thread {:?}: {:?}\n{:?}",
+            thread, message, backtrace
+        );
+
+        #[cfg(feature = "use-slog")]
+        slog_scope::crit!("panic";
+        "backtrace" => ?backtrace,
+        "message" => message,
+        "thread" => thread,
+        );
     }
 
+    let _ = std::panic::take_hook();
     None
 }

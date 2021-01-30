@@ -10,4 +10,17 @@ edition = "2018"
 backtrace = "0.3"
 lazy_static = "1.4"
 parking_lot = "0.11"
-log = "0.4"
+
+slog = { version = "2.7", optional = true }
+slog-scope = { version = "4.4", optional = true }
+log = { version = "0.4", optional = true }
+
+[features]
+default = ["use-log"]
+use-log = ["log"]
+use-slog = ["slog", "slog-scope", "slog"]
+
+
+[dev-dependencies]
+env_logger = "0.8"
+slog-term = "2.6"

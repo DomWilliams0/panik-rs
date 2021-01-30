@@ -1,7 +1,9 @@
-use std::sync::{Arc, Mutex};
+mod setup;
 
 #[test]
 fn multiple_threads() {
+    setup::init();
+
     let result = panic::run_and_handle_panics(move || {
         for _ in 0..4 {
             let thread = std::thread::spawn(|| panic!("uh oh"));

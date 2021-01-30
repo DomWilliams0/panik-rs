@@ -1,5 +1,9 @@
+mod setup;
+
 #[test]
 fn main_thread() {
+    setup::init();
+
     let result = panic::run_and_handle_panics(|| panic!("oh no"));
 
     assert!(result.is_none());

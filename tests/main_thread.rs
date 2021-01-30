@@ -13,7 +13,7 @@ fn main_thread() {
     assert_eq!(panics.len(), 1);
 
     let panic = &panics[0];
-    assert_eq!(panic.thread_id, std::thread::current().id());
-    assert_eq!(panic.message, "oh no");
+    assert_eq!(panic.thread_id(), std::thread::current().id());
+    assert_eq!(panic.message(), "oh no");
     assert!(panic.is_backtrace_resolved());
 }

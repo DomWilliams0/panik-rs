@@ -23,7 +23,7 @@ fn multiple_threads() {
         .iter()
         .enumerate()
         .find_map(|(idx, p)| {
-            if p.thread_id == std::thread::current().id() {
+            if p.thread_id() == std::thread::current().id() {
                 Some(idx)
             } else {
                 None
@@ -32,6 +32,6 @@ fn multiple_threads() {
         .unwrap();
 
     let main = panics.remove(main_idx);
-    assert_eq!(main.message, "me too");
-    assert!(panics.iter().all(|p| p.message == "uh oh"));
+    assert_eq!(main.message(), "me too");
+    assert!(panics.iter().all(|p| p.message() == "uh oh"));
 }

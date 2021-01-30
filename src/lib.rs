@@ -18,10 +18,10 @@ lazy_static::lazy_static! {
 
 #[derive(Debug, Clone)]
 pub struct Panic {
-    pub message: String,
-    pub thread_id: ThreadId,
-    pub thread: String,
-    pub backtrace: Backtrace,
+    message: String,
+    thread_id: ThreadId,
+    thread: String,
+    backtrace: Backtrace,
     backtrace_resolved: bool,
 }
 
@@ -190,5 +190,18 @@ pub fn run_and_handle_panics<R: Debug>(do_me: impl FnOnce() -> R + UnwindSafe) -
 impl Panic {
     pub fn is_backtrace_resolved(&self) -> bool {
         self.backtrace_resolved
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+    pub fn thread_id(&self) -> ThreadId {
+        self.thread_id
+    }
+    pub fn thread_name(&self) -> &str {
+        &self.thread
+    }
+    pub fn backtrace(&self) -> &Backtrace {
+        &self.backtrace
     }
 }

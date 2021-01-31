@@ -80,8 +80,22 @@ pub fn set_maximum_backtrace_resolutions(n: usize) {
     BACKTRACE_RESOLUTION_LIMIT.store(n, Relaxed);
 }
 
-/// None on error
+/// Same as [run_and_handle_panics] but the return type doesn't implement [Debug]. This only
+/// matters when logging that the return value has been swallowed due to a different thread
+/// panicking.
+pub fn run_and_handle_panics_no_debug<R>(do_me: impl FnOnce() -> R + UnwindSafe) -> Option<R> {
+    run_and_handle_panics_with_maybe_debug(do_me, |_| Cow::Borrowed("<unprintable>"))
+}
+
+/// If the return type doesn't implement [Debug], use [run_and_handle_panics_no_debug] instead.
 pub fn run_and_handle_panics<R: Debug>(do_me: impl FnOnce() -> R + UnwindSafe) -> Option<R> {
+    run_and_handle_panics_with_maybe_debug(do_me, |res| Cow::Owned(format!("{:?}", res)))
+}
+
+fn run_and_handle_panics_with_maybe_debug<R>(
+    do_me: impl FnOnce() -> R + UnwindSafe,
+    format_swallowed: impl FnOnce(R) -> Cow<'static, str>,
+) -> Option<R> {
     std::panic::set_hook(Box::new(|panic| {
         register_panic(panic);
     }));
@@ -95,20 +109,22 @@ pub fn run_and_handle_panics<R: Debug>(do_me: impl FnOnce() -> R + UnwindSafe) -
             return Some(res);
         }
         (Ok(res), false) => {
+            let swallowed = format_swallowed(res);
+
             #[cfg(feature = "use-log")]
             log::warn!(
-                "panic occurred in another thread, swallowing unpanicked result: {:?}",
-                res
+                "panic occurred in another thread, swallowing unpanicked result: {}",
+                swallowed
             );
 
             #[cfg(all(not(feature = "use-log"), not(feature = "use-slog")))]
             eprintln!(
-                "panic occurred in another thread, swallowing unpanicked result: {:?}",
-                res
+                "panic occurred in another thread, swallowing unpanicked result: {}",
+                swallowed
             );
 
             #[cfg(feature = "use-slog")]
-            slog_scope::warn!("panic occurred in another thread, swallowing unpanicked result"; "result" => ?res);
+            slog_scope::warn!("panic occurred in another thread, swallowing unpanicked result"; "result" => %swallowed);
         }
         (Err(_), false) => {}
         (Err(_), true) => unreachable!(),

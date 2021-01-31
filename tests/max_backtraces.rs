@@ -11,6 +11,8 @@ fn max_backtraces() {
             let thread = std::thread::spawn(|| panic!("uh oh"));
             let _ = thread.join();
         }
+
+        "epic"
     });
 
     assert!(result.is_none());
@@ -23,5 +25,5 @@ fn max_backtraces() {
     let unresolved_count = panics.iter().filter(|p| !p.is_backtrace_resolved()).count();
 
     assert_eq!(resolved_count, 3);
-    assert_eq!(unresolved_count, 2);
+    assert_eq!(unresolved_count, 5);
 }

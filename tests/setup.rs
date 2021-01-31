@@ -1,6 +1,9 @@
 pub fn init() {
     #[cfg(feature = "use-log")]
-    env_logger::init();
+    env_logger::builder()
+        .is_test(true)
+        .filter_level(log::LevelFilter::Debug)
+        .init();
 
     #[cfg(feature = "use-slog")]
     {

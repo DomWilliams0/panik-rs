@@ -1,6 +1,5 @@
 use backtrace::Backtrace;
 
-use parking_lot::Mutex;
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::panic::{PanicInfo, UnwindSafe};
@@ -8,7 +7,12 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread::ThreadId;
 
-// TODO parking_lot feature
+#[cfg(feature = "use-parking-lot")]
+use parking_lot::Mutex;
+
+use std::ops::DerefMut;
+#[cfg(not(feature = "use-parking-lot"))]
+use std::sync::Mutex;
 
 lazy_static::lazy_static! {
     static ref HAS_PANICKED: AtomicBool = AtomicBool::default();
@@ -26,13 +30,8 @@ pub struct Panic {
 }
 
 pub fn panics() -> Vec<Panic> {
-    let panics = PANICS.lock();
+    let panics = panics_mutex();
     panics.clone() // efficiency be damned we're dying
-}
-
-pub fn with_panics(do_this: impl FnOnce(&[Panic])) {
-    let panics = PANICS.lock();
-    do_this(&panics);
 }
 
 pub fn has_panicked() -> bool {
@@ -66,7 +65,7 @@ fn register_panic(panic: &PanicInfo) {
 
     HAS_PANICKED.store(true, Ordering::Relaxed);
 
-    let mut panics = PANICS.lock();
+    let mut panics = panics_mutex();
     panics.push(Panic {
         message: message.into_owned(),
         thread_id: tid,
@@ -74,6 +73,14 @@ fn register_panic(panic: &PanicInfo) {
         backtrace,
         backtrace_resolved: false,
     });
+}
+
+fn panics_mutex() -> impl DerefMut<Target = Vec<Panic>> {
+    #[cfg(feature = "use-parking-lot")]
+    return PANICS.lock();
+
+    #[cfg(not(feature = "use-parking-lot"))]
+    PANICS.lock().unwrap()
 }
 
 pub fn set_maximum_backtrace_resolutions(n: usize) {
@@ -101,7 +108,7 @@ fn run_and_handle_panics_with_maybe_debug<R>(
     }));
 
     let result = std::panic::catch_unwind(|| do_me());
-    let mut all_panics = PANICS.lock();
+    let mut all_panics = panics_mutex();
 
     match (result, all_panics.is_empty()) {
         (Ok(res), true) => {

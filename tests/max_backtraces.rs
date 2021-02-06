@@ -2,9 +2,7 @@ mod setup;
 
 #[test]
 fn max_backtraces() {
-    setup::init();
-
-    let result = panik::Builder::default()
+    let result = setup::panik_builder()
         .backtrace_resolution_limit(3)
         .run_and_handle_panics(move || {
             for _ in 0..5 {

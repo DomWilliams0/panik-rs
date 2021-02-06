@@ -2,9 +2,7 @@ mod setup;
 
 #[test]
 fn main_thread() {
-    setup::init();
-
-    let result = panik::run_and_handle_panics(|| panic!("oh no"));
+    let result = setup::panik_builder().run_and_handle_panics(|| panic!("oh no"));
     assert!(result.is_none());
     assert!(panik::has_panicked());
 

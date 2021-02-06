@@ -4,12 +4,10 @@ use std::sync::{Arc, Mutex};
 
 #[test]
 fn other_thread() {
-    setup::init();
-
     let tid = Arc::new(Mutex::new(None));
     let tid_2 = tid.clone();
 
-    let result = panik::run_and_handle_panics(move || {
+    let result = setup::panik_builder().run_and_handle_panics(move || {
         let thread = std::thread::spawn(move || {
             let mut tid = tid_2.lock().unwrap();
             *tid = Some(std::thread::current().id());

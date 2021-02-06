@@ -2,9 +2,7 @@ mod setup;
 
 #[test]
 fn no_panic() {
-    setup::init();
-
-    let result = panik::run_and_handle_panics(|| "nice");
+    let result = setup::panik_builder().run_and_handle_panics(|| "nice");
 
     assert_eq!(result.to_owned(), Some("nice"));
     assert!(!panik::has_panicked());

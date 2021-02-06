@@ -2,9 +2,7 @@ mod setup;
 
 #[test]
 fn nested() {
-    setup::init();
-
-    let outer = panik::run_and_handle_panics(|| {
+    let outer = setup::panik_builder().run_and_handle_panics(|| {
         // naughty
         panik::run_and_handle_panics(|| 5);
 

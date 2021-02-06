@@ -157,6 +157,7 @@ pub struct Panic {
 }
 
 /// Builder for panic handling configuration.
+#[derive(Clone)]
 pub struct Builder {
     #[cfg(feature = "use-slog")]
     slogger: Option<slog::Logger>,

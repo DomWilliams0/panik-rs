@@ -2,9 +2,7 @@ mod setup;
 
 #[test]
 fn multiple_threads() {
-    setup::init();
-
-    let result = panik::run_and_handle_panics(move || {
+    let result = setup::panik_builder().run_and_handle_panics(move || {
         for _ in 0..4 {
             let thread = std::thread::spawn(|| panic!("uh oh"));
             let _ = thread.join();

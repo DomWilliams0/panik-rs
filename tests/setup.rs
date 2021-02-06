@@ -12,6 +12,7 @@ pub fn init() {
         let plain = slog_term::PlainSyncDecorator::new(std::io::stderr());
         let log = slog::Logger::root(slog_term::FullFormat::new(plain).build().fuse(), slog_o!());
         let guard = slog_scope::set_global_logger(log);
+        panik::set_slog_logger(slog_scope::logger());
         std::mem::forget(guard);
     }
 }

@@ -65,7 +65,7 @@
 //!     None => {
 //!         eprintln!("something went wrong: {:?}", panik::panics());
 //!         std::process::exit(1);
-//!     },
+//!     }
 //!     Some(result) => {
 //!         println!("result: {}", result);
 //!         std::process::exit(0);
@@ -104,10 +104,46 @@ lazy_static::lazy_static! {
     static ref STATE: Mutex<State> = Mutex::new(State::default());
 }
 
+macro_rules! log_warn {
+($state:expr, $($arg:tt)+) => {
+        #[cfg(feature = "use-slog")]
+        slog::warn!(&$state.slogger, $($arg)+);
+        #[cfg(feature = "use-log")]
+        log::warn!($($arg)+);
+        #[cfg(feature = "use-stderr")]
+        eprintln!($($arg)+);
+    }
+}
+
+macro_rules! log_error {
+($state:expr, $($arg:tt)+) => {
+        #[cfg(feature = "use-slog")]
+        slog::error!(&$state.slogger, $($arg)+);
+        #[cfg(feature = "use-log")]
+        log::error!($($arg)+);
+        #[cfg(feature = "use-stderr")]
+        eprintln!($($arg)+);
+    }
+}
+
+macro_rules! log_crit {
+($state:expr, $($arg:tt)+) => {
+        #[cfg(feature = "use-slog")]
+        slog::crit!(&$state.slogger, $($arg)+);
+        #[cfg(feature = "use-log")]
+        log::error!($($arg)+);
+        #[cfg(feature = "use-stderr")]
+        eprintln!($($arg)+);
+    }
+}
+
 struct State {
     panics: Vec<Panic>,
     backtrace_resolution_limit: usize,
     is_running: bool,
+
+    #[cfg(feature = "use-slog")]
+    slogger: slog::Logger,
 }
 
 /// Describes a panic that has occurred.
@@ -136,18 +172,11 @@ fn register_panic(panic: &PanicInfo) {
         .map(|s| Cow::Borrowed(*s))
         .unwrap_or_else(|| Cow::from(format!("{}", panic)));
 
-    #[cfg(feature = "use-log")]
-    log::error!("handling panic on thread {}: '{}'", thread, message);
-
-    #[cfg(feature = "use-stderr")]
-    eprintln!("handling panic on thread {}: '{}'", thread, message);
-
-    #[cfg(feature = "use-slog")]
-    slog_scope::error!("handling panic"; "thread" => &thread, "message" => %message);
-
     let backtrace = Backtrace::new_unresolved();
 
     let mut state = state_mutex();
+    log_error!(&state, "handling panic on thread {}: '{}'", thread, message);
+
     state.panics.push(Panic {
         message: message.into_owned(),
         thread_id: tid,
@@ -226,37 +255,25 @@ fn run_and_handle_panics_with_maybe_debug<R>(
         (Ok(res), false) => {
             let swallowed = format_swallowed(res);
 
-            #[cfg(feature = "use-log")]
-            log::warn!(
+            log_warn!(
+                &state,
                 "panic occurred in another thread, swallowing unpanicked result: {}",
                 swallowed
             );
-
-            #[cfg(feature = "use-stderr")]
-            eprintln!(
-                "panic occurred in another thread, swallowing unpanicked result: {}",
-                swallowed
-            );
-
-            #[cfg(feature = "use-slog")]
-            slog_scope::warn!("panic occurred in another thread, swallowing unpanicked result"; "result" => %swallowed);
         }
         (Err(_), false) => {}
         (Err(_), true) => unreachable!(),
     };
 
+    log_error!(
+        &state,
+        "{count} threads panicked",
+        count = state.panics.len()
+    );
+
     let backtrace_resolution_limit = state.backtrace_resolution_limit;
-    let panics = &mut state.panics;
+    let mut panics = std::mem::take(&mut state.panics);
     debug_assert!(!panics.is_empty(), "panics vec should not be empty");
-
-    #[cfg(feature = "use-log")]
-    log::info!("{count} threads panicked", count = panics.len());
-
-    #[cfg(all(not(feature = "use-log"), not(feature = "use-slog")))]
-    eprintln!("{count} threads panicked", count = panics.len());
-
-    #[cfg(feature = "use-slog")]
-    slog_scope::crit!("{count} threads panicked", count = panics.len());
 
     for (
         i,
@@ -287,36 +304,28 @@ fn run_and_handle_panics_with_maybe_debug<R>(
                     limit = backtrace_resolution_limit
                 );
 
-                #[cfg(feature = "use-slog")]
-                slog_scope::warn!(
-                    "handling more than {limit} panics, no longer resolving backtraces",
-                    limit = backtrace_resolution_limit
-                );
+                // #[cfg(feature = "use-slog")]
+                // slog::warn!(
+                //     "handling more than {limit} panics, no longer resolving backtraces",
+                //     limit = backtrace_resolution_limit
+                // );
             }
             _ => {}
         };
 
-        #[cfg(feature = "use-log")]
-        log::error!(
+        log_crit!(
+            &state,
             "panic on thread {:?}: {:?}\n{:?}",
             thread,
             message,
             backtrace
         );
-
-        #[cfg(feature = "use-stderr")]
-        eprintln!(
-            "panic on thread {:?}: {:?}\n{:?}",
-            thread, message, backtrace
-        );
-
-        #[cfg(feature = "use-slog")]
-        slog_scope::crit!("panic";
-        "backtrace" => ?backtrace,
-        "message" => %message,
-        "thread" => %thread,
-        );
     }
+
+    // put panics back
+    let empty = std::mem::replace(&mut state.panics, panics);
+    debug_assert!(empty.is_empty());
+    std::mem::forget(empty);
 
     None
 }
@@ -332,7 +341,7 @@ pub fn has_panicked() -> bool {
     !state_mutex().panics.is_empty()
 }
 
-// TODO add Builder pattern if there is any more config
+// TODO add Builder pattern instead of global setters
 /// Sets the limit on backtraces to resolve in the next call to [run_and_handle_panics] only.
 ///
 /// The default of 8 is restored afterwards.
@@ -350,6 +359,11 @@ pub fn has_panicked() -> bool {
 /// ```
 pub fn set_maximum_backtrace_resolutions(n: usize) {
     state_mutex().backtrace_resolution_limit = n;
+}
+
+#[cfg(feature = "use-slog")]
+pub fn set_slog_logger(logger: impl Into<slog::Logger>) {
+    state_mutex().slogger = logger.into();
 }
 
 /// Gets the backtrace resolution limit for the next call to [run_and_handle_panics].
@@ -416,10 +430,16 @@ impl Drop for GlobalStateGuard {
 
 impl Default for State {
     fn default() -> Self {
+        #[cfg(feature = "use-slog")]
+        use slog::Drain;
+
         State {
             panics: Vec::new(),
             backtrace_resolution_limit: DEFAULT_BACKTRACE_RESOLUTION_LIMIT,
             is_running: false,
+
+            #[cfg(feature = "use-slog")]
+            slogger: slog::Logger::root(slog_stdlog::StdLog.fuse(), slog::o!()),
         }
     }
 }

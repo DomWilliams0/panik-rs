@@ -18,13 +18,13 @@ lazy_static = "1.4"
 parking_lot = { version = "0.11", optional = true }
 
 slog = { version = "2.7", optional = true }
-slog-scope = { version = "4.4", optional = true }
+slog-stdlog = { version = "4.1", optional = true }
 log = { version = "0.4", optional = true }
 
 [features]
 default = ["use-log"]
 use-log = ["log"]
-use-slog = ["slog", "slog-scope", "slog"]
+use-slog = ["slog", "slog-stdlog"]
 use-stderr = []
 use-parking-lot = ["parking_lot"]
 
@@ -32,3 +32,4 @@ use-parking-lot = ["parking_lot"]
 [dev-dependencies]
 env_logger = "0.8"
 slog-term = "2.6"
+slog-scope = "4.4"

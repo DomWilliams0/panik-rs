@@ -21,7 +21,6 @@ lazy_static::lazy_static! {
 }
 
 struct State {
-    has_panicked: bool,
     panics: Vec<Panic>,
     backtrace_resolution_limit: usize,
     nested_count: i8,
@@ -38,16 +37,6 @@ pub struct Panic {
 }
 
 struct GlobalStateGuard;
-
-/// Gets all panics that have occurred in this program.
-pub fn panics() -> Vec<Panic> {
-    let state = state_mutex();
-    state.panics.clone() // efficiency be damned we're dying
-}
-
-pub fn has_panicked() -> bool {
-    state_mutex().has_panicked
-}
 
 fn register_panic(panic: &PanicInfo) {
     let (thread, tid) = {
@@ -75,7 +64,6 @@ fn register_panic(panic: &PanicInfo) {
     let backtrace = Backtrace::new_unresolved();
 
     let mut state = state_mutex();
-    state.has_panicked = true;
     state.panics.push(Panic {
         message: message.into_owned(),
         thread_id: tid,
@@ -93,19 +81,46 @@ fn state_mutex() -> impl DerefMut<Target = State> {
     STATE.lock().unwrap()
 }
 
-// TODO add Builder pattern if there is any more config
-pub fn set_maximum_backtrace_resolutions(n: usize) {
-    state_mutex().backtrace_resolution_limit = n;
-}
-
-/// Same as [run_and_handle_panics] but the return type doesn't implement [Debug]. This only
-/// matters when logging that the return value has been swallowed due to a different thread
+/// Identical to [run_and_handle_panics] except the return type doesn't need to be [Debug].
+///
+/// This only matters when logging a return value has been swallowed due to a different thread
 /// panicking.
 pub fn run_and_handle_panics_no_debug<R>(do_me: impl FnOnce() -> R + UnwindSafe) -> Option<R> {
     run_and_handle_panics_with_maybe_debug(do_me, |_| Cow::Borrowed("<unprintable>"))
 }
 
-/// If the return type doesn't implement [Debug], use [run_and_handle_panics_no_debug] instead.
+/// Runs the given closure, catching any panics that occur on **all threads** while in the scope of
+/// the closure.
+///
+/// The [Debug] bound on `R` is only for logging purposes (in the event a successful result is
+/// swallowed by a panic on another thread) - see [run_and_handle_panics_no_debug] for an
+/// unconstrained return value.
+///
+/// This function can be called multiple times **serially**, but cannot be nested.
+///
+/// # Return value
+/// If any thread(s) panicked, `None` is returned and the offending [Panic]s are available in
+/// [panic::panics()](panics) and [panic::has_panicked()](has_panicked) until the next call to this function. Otherwise
+/// if no panics occur, `Some(R)` is returned.
+///
+/// # Example
+///
+/// See the `tests/` directory for more examples.
+///
+/// ```
+/// # fn main() {
+/// let result = panic::run_and_handle_panics(|| panic!("oh no"));
+/// assert!(result.is_none());
+/// assert!(panic::has_panicked());
+///
+/// let panics = panic::panics();
+/// assert_eq!(panics.len(), 1);
+///
+/// let panic = &panics[0];
+/// assert_eq!(panic.thread_id(), std::thread::current().id());
+/// assert_eq!(panic.message(), "oh no");
+/// # }
+/// ```
 pub fn run_and_handle_panics<R: Debug>(do_me: impl FnOnce() -> R + UnwindSafe) -> Option<R> {
     run_and_handle_panics_with_maybe_debug(do_me, |res| Cow::Owned(format!("{:?}", res)))
 }
@@ -222,28 +237,64 @@ fn run_and_handle_panics_with_maybe_debug<R>(
     None
 }
 
+/// Gets a copy of all panics that have occurred since the last call to [run_and_handle_panics].
+pub fn panics() -> Vec<Panic> {
+    let state = state_mutex();
+    state.panics.clone() // efficiency be damned we're dying
+}
+
+/// Whether any panic has occurred since the last call to [run_and_handle_panics].
+pub fn has_panicked() -> bool {
+    !state_mutex().panics.is_empty()
+}
+
+// TODO add Builder pattern if there is any more config
+/// Sets the limit on backtraces to resolve in the next call to [run_and_handle_panics] only.
+///
+/// The default of 8 is restored afterwards.
+///
+/// # Example
+/// ```
+/// panic::set_maximum_backtrace_resolutions(3);
+/// let _ = panic::run_and_handle_panics(|| {
+///     /* ... */
+/// });
+///
+/// // limit is reverted to default
+/// assert_eq!(panic::maximum_backtrace_resolutions(), 8);
+///
+/// ```
+pub fn set_maximum_backtrace_resolutions(n: usize) {
+    state_mutex().backtrace_resolution_limit = n;
+}
+
+/// Gets the backtrace resolution limit for the next call to [run_and_handle_panics].
+pub fn maximum_backtrace_resolutions() -> usize {
+    state_mutex().backtrace_resolution_limit
+}
+
 impl Panic {
-    /// Whether the backtrace for this panic has been resolved
+    /// Whether the backtrace for this panic has been resolved.
     pub fn is_backtrace_resolved(&self) -> bool {
         self.backtrace_resolved
     }
 
-    /// The panic message
+    /// The panic message.
     pub fn message(&self) -> &str {
         &self.message
     }
 
-    /// The thread that this panic occurred on
+    /// The thread that this panic occurred on.
     pub fn thread_id(&self) -> ThreadId {
         self.thread_id
     }
 
-    /// A string describing the thread e.g. "ThreadId(12) (worker-thread)"
+    /// A string describing the thread e.g. "ThreadId(12) (worker-thread)".
     pub fn thread_name(&self) -> &str {
         &self.thread
     }
 
-    /// The backtrace for this panic
+    /// The backtrace for this panic.
     pub fn backtrace(&self) -> &Backtrace {
         &self.backtrace
     }
@@ -259,7 +310,6 @@ impl GlobalStateGuard {
             panic!("nested calls to panic::run_and_handle_panics are not supported")
         }
         state.panics.clear();
-        state.has_panicked = false;
         state.nested_count += 1;
 
         std::panic::set_hook(Box::new(|panic| {
@@ -283,7 +333,6 @@ impl Drop for GlobalStateGuard {
 impl Default for State {
     fn default() -> Self {
         State {
-            has_panicked: false,
             panics: Vec::new(),
             backtrace_resolution_limit: DEFAULT_BACKTRACE_RESOLUTION_LIMIT,
             nested_count: 0,

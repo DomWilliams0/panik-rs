@@ -1,8 +1,11 @@
-# panik
+# panik-rs
 
+![Build Status](https://img.shields.io/github/workflow/status/DomWilliams0/panik-rs/Build%20and%20test)
 [![Documentation](https://docs.rs/panik/badge.svg)](https://docs.rs/panik)
 [![Version](https://img.shields.io/crates/v/panik)](https://crates.io/crates/panik)
 [![License](https://img.shields.io/crates/l/panik)](https://github.com/DomWilliams0/panik-rs/blob/master/LICENSE)
+
+<p align="center"> <img src="panik.jpg" width=256/> </p>
 
 This crate enables **application-wide panic handling**, whereby panics occurring in any thread
 are detected, stored and can be queried to trigger an early application exit.

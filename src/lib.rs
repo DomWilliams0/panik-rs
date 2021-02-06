@@ -156,7 +156,77 @@ pub struct Panic {
     backtrace_resolved: bool,
 }
 
+/// Builder for panic handling configuration.
+pub struct Builder {
+    #[cfg(feature = "use-slog")]
+    slogger: Option<slog::Logger>,
+
+    backtrace_resolution_limit: usize,
+}
+
 struct GlobalStateGuard;
+
+impl Builder {
+    pub fn new() -> Self {
+        Builder {
+            #[cfg(feature = "use-slog")]
+            slogger: None,
+
+            backtrace_resolution_limit: DEFAULT_BACKTRACE_RESOLUTION_LIMIT,
+        }
+    }
+
+    #[cfg(feature = "use-slog")]
+    /// Sets the slog logger to log to.
+    pub fn slogger(mut self, slogger: impl Into<slog::Logger>) -> Self {
+        self.slogger = Some(slogger.into());
+        self
+    }
+
+    /// Sets the limit on backtraces to resolve. Defaults to 8.
+    ///
+    /// Useful in the case where there are many threads panicking with the same reason, and it can
+    /// take a long time to resolve them all.
+    pub fn backtrace_resolution_limit(mut self, n: usize) -> Self {
+        self.backtrace_resolution_limit = n;
+        self
+    }
+
+    fn apply_settings(&mut self) {
+        let mut state = state_mutex();
+
+        #[cfg(feature = "use-slog")]
+        {
+            state.slogger = self.slogger.take().unwrap_or_else(|| default_slogger());
+        }
+
+        state.backtrace_resolution_limit = self.backtrace_resolution_limit;
+    }
+
+    /// See [run_and_handle_panics].
+    pub fn run_and_handle_panics<R: Debug>(
+        mut self,
+        do_me: impl FnOnce() -> R + UnwindSafe,
+    ) -> Option<R> {
+        self.apply_settings();
+        run_and_handle_panics(do_me)
+    }
+
+    /// See [run_and_handle_panics_no_debug].
+    pub fn run_and_handle_panics_no_debug<R>(
+        mut self,
+        do_me: impl FnOnce() -> R + UnwindSafe,
+    ) -> Option<R> {
+        self.apply_settings();
+        run_and_handle_panics_no_debug(do_me)
+    }
+}
+
+impl Default for Builder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 fn register_panic(panic: &PanicInfo) {
     let (thread, tid) = {
@@ -204,6 +274,8 @@ pub fn run_and_handle_panics_no_debug<R>(do_me: impl FnOnce() -> R + UnwindSafe)
 
 /// Runs the given closure, catching any panics that occur on **all threads** while in the scope of
 /// the closure.
+///
+/// See [Builder] for configuration.
 ///
 /// The [Debug] bound on `R` is only for logging purposes (in the event a successful result is
 /// swallowed by a panic on another thread) - see [run_and_handle_panics_no_debug] for an
@@ -341,36 +413,6 @@ pub fn has_panicked() -> bool {
     !state_mutex().panics.is_empty()
 }
 
-// TODO add Builder pattern instead of global setters
-/// Sets the limit on backtraces to resolve in the next call to [run_and_handle_panics] only.
-///
-/// The default of 8 is restored afterwards.
-///
-/// # Example
-/// ```
-/// panik::set_maximum_backtrace_resolutions(3);
-/// let _ = panik::run_and_handle_panics(|| {
-///     /* ... */
-/// });
-///
-/// // limit is reverted to default
-/// assert_eq!(panik::maximum_backtrace_resolutions(), 8);
-///
-/// ```
-pub fn set_maximum_backtrace_resolutions(n: usize) {
-    state_mutex().backtrace_resolution_limit = n;
-}
-
-#[cfg(feature = "use-slog")]
-pub fn set_slog_logger(logger: impl Into<slog::Logger>) {
-    state_mutex().slogger = logger.into();
-}
-
-/// Gets the backtrace resolution limit for the next call to [run_and_handle_panics].
-pub fn maximum_backtrace_resolutions() -> usize {
-    state_mutex().backtrace_resolution_limit
-}
-
 impl Panic {
     /// Whether the backtrace for this panic has been resolved.
     pub fn is_backtrace_resolved(&self) -> bool {
@@ -425,21 +467,29 @@ impl Drop for GlobalStateGuard {
         let mut state = state_mutex();
         state.backtrace_resolution_limit = DEFAULT_BACKTRACE_RESOLUTION_LIMIT;
         state.is_running = false;
+
+        #[cfg(feature = "use-slog")]
+        {
+            state.slogger = default_slogger();
+        }
     }
 }
 
 impl Default for State {
     fn default() -> Self {
-        #[cfg(feature = "use-slog")]
-        use slog::Drain;
-
         State {
             panics: Vec::new(),
             backtrace_resolution_limit: DEFAULT_BACKTRACE_RESOLUTION_LIMIT,
             is_running: false,
 
             #[cfg(feature = "use-slog")]
-            slogger: slog::Logger::root(slog_stdlog::StdLog.fuse(), slog::o!()),
+            slogger: default_slogger(),
         }
     }
+}
+
+#[cfg(feature = "use-slog")]
+fn default_slogger() -> slog::Logger {
+    use slog::Drain;
+    slog::Logger::root(slog_stdlog::StdLog.fuse(), slog::o!())
 }

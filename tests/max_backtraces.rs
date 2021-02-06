@@ -4,16 +4,16 @@ mod setup;
 fn max_backtraces() {
     setup::init();
 
-    panik::set_maximum_backtrace_resolutions(3);
+    let result = panik::Builder::default()
+        .backtrace_resolution_limit(3)
+        .run_and_handle_panics(move || {
+            for _ in 0..5 {
+                let thread = std::thread::spawn(|| panic!("uh oh"));
+                let _ = thread.join();
+            }
 
-    let result = panik::run_and_handle_panics(move || {
-        for _ in 0..5 {
-            let thread = std::thread::spawn(|| panic!("uh oh"));
-            let _ = thread.join();
-        }
-
-        "epic"
-    });
+            "epic"
+        });
 
     assert!(result.is_none());
     assert!(panik::has_panicked());

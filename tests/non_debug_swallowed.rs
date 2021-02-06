@@ -11,9 +11,6 @@ fn non_debug_swallowed() {
         MyOpaque(100)
     });
 
-    assert!(result.is_some());
-    assert!(!panic::has_panicked());
-
-    let opaque = result.unwrap();
-    assert_eq!(opaque.0, 100);
+    assert!(result.is_none());
+    assert!(panic::has_panicked());
 }

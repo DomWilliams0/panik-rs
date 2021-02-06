@@ -25,5 +25,5 @@ fn max_backtraces() {
     let unresolved_count = panics.iter().filter(|p| !p.is_backtrace_resolved()).count();
 
     assert_eq!(resolved_count, 3);
-    assert_eq!(unresolved_count, 5);
+    assert_eq!(unresolved_count, 2);
 }

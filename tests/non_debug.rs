@@ -6,7 +6,7 @@ fn non_debug() {
 
     struct MyOpaque(i32);
 
-    let result = panic::run_and_handle_panics(|| MyOpaque(100));
+    let result = panic::run_and_handle_panics_no_debug(|| MyOpaque(100));
 
     assert!(result.is_some());
     assert!(!panic::has_panicked());

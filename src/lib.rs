@@ -3,23 +3,31 @@ use backtrace::Backtrace;
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::panic::{PanicInfo, UnwindSafe};
-use std::sync::atomic::Ordering::Relaxed;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread::ThreadId;
+
+use std::cmp::Ordering;
+use std::ops::DerefMut;
 
 #[cfg(feature = "use-parking-lot")]
 use parking_lot::Mutex;
 
-use std::ops::DerefMut;
 #[cfg(not(feature = "use-parking-lot"))]
 use std::sync::Mutex;
 
+const DEFAULT_BACKTRACE_RESOLUTION_LIMIT: usize = 8;
+
 lazy_static::lazy_static! {
-    static ref HAS_PANICKED: AtomicBool = AtomicBool::default();
-    static ref PANICS: Mutex<Vec<Panic>> = Mutex::new(Vec::new());
-    static ref BACKTRACE_RESOLUTION_LIMIT: AtomicUsize = AtomicUsize::new(8);
+    static ref STATE: Mutex<State> = Mutex::new(State::default());
 }
 
+struct State {
+    has_panicked: bool,
+    panics: Vec<Panic>,
+    backtrace_resolution_limit: usize,
+    nested_count: i8,
+}
+
+/// Describes a panic that has occurred.
 #[derive(Debug, Clone)]
 pub struct Panic {
     message: String,
@@ -29,13 +37,16 @@ pub struct Panic {
     backtrace_resolved: bool,
 }
 
+struct GlobalStateGuard;
+
+/// Gets all panics that have occurred in this program.
 pub fn panics() -> Vec<Panic> {
-    let panics = panics_mutex();
-    panics.clone() // efficiency be damned we're dying
+    let state = state_mutex();
+    state.panics.clone() // efficiency be damned we're dying
 }
 
 pub fn has_panicked() -> bool {
-    HAS_PANICKED.load(Ordering::Relaxed)
+    state_mutex().has_panicked
 }
 
 fn register_panic(panic: &PanicInfo) {
@@ -63,10 +74,9 @@ fn register_panic(panic: &PanicInfo) {
 
     let backtrace = Backtrace::new_unresolved();
 
-    HAS_PANICKED.store(true, Ordering::Relaxed);
-
-    let mut panics = panics_mutex();
-    panics.push(Panic {
+    let mut state = state_mutex();
+    state.has_panicked = true;
+    state.panics.push(Panic {
         message: message.into_owned(),
         thread_id: tid,
         thread,
@@ -75,16 +85,17 @@ fn register_panic(panic: &PanicInfo) {
     });
 }
 
-fn panics_mutex() -> impl DerefMut<Target = Vec<Panic>> {
+fn state_mutex() -> impl DerefMut<Target = State> {
     #[cfg(feature = "use-parking-lot")]
-    return PANICS.lock();
+    return STATE.lock();
 
     #[cfg(not(feature = "use-parking-lot"))]
-    PANICS.lock().unwrap()
+    STATE.lock().unwrap()
 }
 
+// TODO add Builder pattern if there is any more config
 pub fn set_maximum_backtrace_resolutions(n: usize) {
-    BACKTRACE_RESOLUTION_LIMIT.store(n, Relaxed);
+    state_mutex().backtrace_resolution_limit = n;
 }
 
 /// Same as [run_and_handle_panics] but the return type doesn't implement [Debug]. This only
@@ -103,14 +114,12 @@ fn run_and_handle_panics_with_maybe_debug<R>(
     do_me: impl FnOnce() -> R + UnwindSafe,
     format_swallowed: impl FnOnce(R) -> Cow<'static, str>,
 ) -> Option<R> {
-    std::panic::set_hook(Box::new(|panic| {
-        register_panic(panic);
-    }));
+    let _guard = GlobalStateGuard::init();
 
     let result = std::panic::catch_unwind(|| do_me());
-    let mut all_panics = panics_mutex();
 
-    match (result, all_panics.is_empty()) {
+    let mut state = state_mutex();
+    match (result, state.panics.is_empty()) {
         (Ok(res), true) => {
             // no panics
             return Some(res);
@@ -137,18 +146,19 @@ fn run_and_handle_panics_with_maybe_debug<R>(
         (Err(_), true) => unreachable!(),
     };
 
-    debug_assert!(!all_panics.is_empty(), "panics vec should not be empty");
+    let backtrace_resolution_limit = state.backtrace_resolution_limit;
+    let panics = &mut state.panics;
+    debug_assert!(!panics.is_empty(), "panics vec should not be empty");
 
     #[cfg(feature = "use-log")]
-    log::info!("{count} threads panicked", count = all_panics.len());
+    log::info!("{count} threads panicked", count = panics.len());
 
     #[cfg(all(not(feature = "use-log"), not(feature = "use-slog")))]
-    eprintln!("{count} threads panicked", count = all_panics.len());
+    eprintln!("{count} threads panicked", count = state.len());
 
     #[cfg(feature = "use-slog")]
-    slog_scope::crit!("{count} threads panicked", count = all_panics.len());
+    slog_scope::crit!("{count} threads panicked", count = panics.len());
 
-    let backtrace_resolution_limit = BACKTRACE_RESOLUTION_LIMIT.load(Relaxed);
     for (
         i,
         Panic {
@@ -158,31 +168,34 @@ fn run_and_handle_panics_with_maybe_debug<R>(
             backtrace_resolved,
             ..
         },
-    ) in all_panics.iter_mut().enumerate()
+    ) in panics.iter_mut().enumerate()
     {
-        if i == backtrace_resolution_limit {
-            #[cfg(feature = "use-log")]
-            log::warn!(
-                "handling more than {limit} panics, no longer resolving backtraces",
-                limit = backtrace_resolution_limit
-            );
+        match i.cmp(&backtrace_resolution_limit) {
+            Ordering::Less => {
+                backtrace.resolve();
+                *backtrace_resolved = true;
+            }
+            Ordering::Equal => {
+                #[cfg(feature = "use-log")]
+                log::warn!(
+                    "handling more than {limit} panics, no longer resolving backtraces",
+                    limit = backtrace_resolution_limit
+                );
 
-            #[cfg(all(not(feature = "use-log"), not(feature = "use-slog")))]
-            eprintln!(
-                "handling more than {limit} panics, no longer resolving backtraces",
-                limit = backtrace_resolution_limit
-            );
+                #[cfg(all(not(feature = "use-log"), not(feature = "use-slog")))]
+                eprintln!(
+                    "handling more than {limit} panics, no longer resolving backtraces",
+                    limit = backtrace_resolution_limit
+                );
 
-            #[cfg(feature = "use-slog")]
-            slog_scope::warn!(
-                "handling more than {limit} panics, no longer resolving backtraces",
-                limit = backtrace_resolution_limit
-            );
-        }
-        if i < backtrace_resolution_limit {
-            backtrace.resolve();
-            *backtrace_resolved = true;
-        }
+                #[cfg(feature = "use-slog")]
+                slog_scope::warn!(
+                    "handling more than {limit} panics, no longer resolving backtraces",
+                    limit = backtrace_resolution_limit
+                );
+            }
+            _ => {}
+        };
 
         #[cfg(feature = "use-log")]
         log::error!(
@@ -201,30 +214,79 @@ fn run_and_handle_panics_with_maybe_debug<R>(
         #[cfg(feature = "use-slog")]
         slog_scope::crit!("panic";
         "backtrace" => ?backtrace,
-        "message" => message,
-        "thread" => thread,
+        "message" => %message,
+        "thread" => %thread,
         );
     }
 
-    let _ = std::panic::take_hook();
     None
 }
 
 impl Panic {
+    /// Whether the backtrace for this panic has been resolved
     pub fn is_backtrace_resolved(&self) -> bool {
         self.backtrace_resolved
     }
 
+    /// The panic message
     pub fn message(&self) -> &str {
         &self.message
     }
+
+    /// The thread that this panic occurred on
     pub fn thread_id(&self) -> ThreadId {
         self.thread_id
     }
+
+    /// A string describing the thread e.g. "ThreadId(12) (worker-thread)"
     pub fn thread_name(&self) -> &str {
         &self.thread
     }
+
+    /// The backtrace for this panic
     pub fn backtrace(&self) -> &Backtrace {
         &self.backtrace
+    }
+}
+
+impl GlobalStateGuard {
+    fn init() -> Self {
+        let mut state = state_mutex();
+
+        // prevent nesting
+        if state.nested_count != 0 {
+            drop(state); // prevent deadlock in panic handler
+            panic!("nested calls to panic::run_and_handle_panics are not supported")
+        }
+        state.panics.clear();
+        state.has_panicked = false;
+        state.nested_count += 1;
+
+        std::panic::set_hook(Box::new(|panic| {
+            register_panic(panic);
+        }));
+
+        Self
+    }
+}
+
+impl Drop for GlobalStateGuard {
+    fn drop(&mut self) {
+        let _ = std::panic::take_hook();
+
+        let mut state = state_mutex();
+        state.backtrace_resolution_limit = DEFAULT_BACKTRACE_RESOLUTION_LIMIT;
+        state.nested_count -= 1;
+    }
+}
+
+impl Default for State {
+    fn default() -> Self {
+        State {
+            has_panicked: false,
+            panics: Vec::new(),
+            backtrace_resolution_limit: DEFAULT_BACKTRACE_RESOLUTION_LIMIT,
+            nested_count: 0,
+        }
     }
 }

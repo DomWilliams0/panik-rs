@@ -1,5 +1,5 @@
 //! This crate enables **application-wide panic handling**, whereby panics occurring in any thread
-//! are detected, stored and can be queried to trigger an early application exit.
+//! are captured and stored, and can later be queried to trigger an early application exit.
 //!
 //! This goes against the standard panic behaviour where a panic is isolated to the thread that
 //! caused it. This library introduces the condition that *any panic in any thread is an error*
@@ -79,7 +79,7 @@
 //! # Features
 //! * `use-stderr`: log panics to stderr
 //! * `use-log`: log panics with the `log` crate
-//! * `use-slog`: log panics with the `slog-scope` crate
+//! * `use-slog`: log panics with the `slog` crate (configured in [Builder])
 //! * `use-parking-lot`: use `parking_lot::Mutex` instead of `std::sync::Mutex`
 
 use backtrace::Backtrace;

@@ -4,7 +4,7 @@
 [![Version](https://img.shields.io/crates/v/panik)](https://crates.io/crates/panik)
 [![License](https://img.shields.io/crates/l/panik)](https://github.com/DomWilliams0/panik-rs/blob/master/LICENSE)
 
-This crate enabled **application-wide panic handling**, whereby panics occurring in any thread
+This crate enables **application-wide panic handling**, whereby panics occurring in any thread
 are detected, stored and can be queried to trigger an early application exit.
 
 This goes against the standard panic behaviour where a panic is isolated to the thread that

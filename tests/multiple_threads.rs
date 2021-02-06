@@ -4,7 +4,7 @@ mod setup;
 fn multiple_threads() {
     setup::init();
 
-    let result = panic::run_and_handle_panics(move || {
+    let result = panik::run_and_handle_panics(move || {
         for _ in 0..4 {
             let thread = std::thread::spawn(|| panic!("uh oh"));
             let _ = thread.join();
@@ -14,9 +14,9 @@ fn multiple_threads() {
     });
 
     assert!(result.is_none());
-    assert!(panic::has_panicked());
+    assert!(panik::has_panicked());
 
-    let mut panics = panic::panics();
+    let mut panics = panik::panics();
     assert_eq!(panics.len(), 5);
 
     let main_idx = panics

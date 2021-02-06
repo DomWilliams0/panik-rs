@@ -4,9 +4,9 @@ mod setup;
 fn max_backtraces() {
     setup::init();
 
-    panic::set_maximum_backtrace_resolutions(3);
+    panik::set_maximum_backtrace_resolutions(3);
 
-    let result = panic::run_and_handle_panics(move || {
+    let result = panik::run_and_handle_panics(move || {
         for _ in 0..5 {
             let thread = std::thread::spawn(|| panic!("uh oh"));
             let _ = thread.join();
@@ -16,9 +16,9 @@ fn max_backtraces() {
     });
 
     assert!(result.is_none());
-    assert!(panic::has_panicked());
+    assert!(panik::has_panicked());
 
-    let panics = panic::panics();
+    let panics = panik::panics();
     assert_eq!(panics.len(), 5);
 
     let resolved_count = panics.iter().filter(|p| p.is_backtrace_resolved()).count();

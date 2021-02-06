@@ -4,11 +4,11 @@ mod setup;
 fn main_thread() {
     setup::init();
 
-    let result = panic::run_and_handle_panics(|| panic!("oh no"));
+    let result = panik::run_and_handle_panics(|| panic!("oh no"));
     assert!(result.is_none());
-    assert!(panic::has_panicked());
+    assert!(panik::has_panicked());
 
-    let panics = panic::panics();
+    let panics = panik::panics();
     assert_eq!(panics.len(), 1);
 
     let panic = &panics[0];

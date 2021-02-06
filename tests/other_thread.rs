@@ -9,7 +9,7 @@ fn other_thread() {
     let tid = Arc::new(Mutex::new(None));
     let tid_2 = tid.clone();
 
-    let result = panic::run_and_handle_panics(move || {
+    let result = panik::run_and_handle_panics(move || {
         let thread = std::thread::spawn(move || {
             let mut tid = tid_2.lock().unwrap();
             *tid = Some(std::thread::current().id());
@@ -23,9 +23,9 @@ fn other_thread() {
     });
 
     assert!(result.is_none());
-    assert!(panic::has_panicked());
+    assert!(panik::has_panicked());
 
-    let panics = panic::panics();
+    let panics = panik::panics();
     assert_eq!(panics.len(), 1);
 
     let panic_tid = {

@@ -36,7 +36,7 @@
 //! The same example detecting and handling panics and exiting gracefully:
 //! ```should_panic
 //! # use std::time::Duration;
-//! let application_result = panic::run_and_handle_panics(|| {
+//! let application_result = panik::run_and_handle_panics(|| {
 //!     let (tx, rx) = std::sync::mpsc::channel();
 //!     let worker = std::thread::spawn(move || {
 //!         // do some work...
@@ -48,7 +48,7 @@
 //!
 //!     // periodically check if a panic has occurred
 //!     let poll_freq = Duration::from_secs(5);
-//!     while !panic::has_panicked() {
+//!     while !panik::has_panicked() {
 //!         # let poll_freq = Duration::from_secs(0);
 //!         if let Ok(res) = rx.recv_timeout(poll_freq) {
 //!             return res;
@@ -63,7 +63,7 @@
 //!
 //! match application_result {
 //!     None => {
-//!         eprintln!("something went wrong: {:?}", panic::panics());
+//!         eprintln!("something went wrong: {:?}", panik::panics());
 //!         std::process::exit(1);
 //!     },
 //!     Some(result) => {
@@ -193,11 +193,11 @@ pub fn run_and_handle_panics_no_debug<R>(do_me: impl FnOnce() -> R + UnwindSafe)
 ///
 /// ```
 /// # fn main() {
-/// let result = panic::run_and_handle_panics(|| panic!("oh no"));
+/// let result = panik::run_and_handle_panics(|| panic!("oh no"));
 /// assert!(result.is_none());
-/// assert!(panic::has_panicked());
+/// assert!(panik::has_panicked());
 ///
-/// let panics = panic::panics();
+/// let panics = panik::panics();
 /// assert_eq!(panics.len(), 1);
 ///
 /// let panic = &panics[0];
@@ -339,13 +339,13 @@ pub fn has_panicked() -> bool {
 ///
 /// # Example
 /// ```
-/// panic::set_maximum_backtrace_resolutions(3);
-/// let _ = panic::run_and_handle_panics(|| {
+/// panik::set_maximum_backtrace_resolutions(3);
+/// let _ = panik::run_and_handle_panics(|| {
 ///     /* ... */
 /// });
 ///
 /// // limit is reverted to default
-/// assert_eq!(panic::maximum_backtrace_resolutions(), 8);
+/// assert_eq!(panik::maximum_backtrace_resolutions(), 8);
 ///
 /// ```
 pub fn set_maximum_backtrace_resolutions(n: usize) {
@@ -391,7 +391,7 @@ impl GlobalStateGuard {
         // prevent nesting
         if state.is_running {
             drop(state); // avoid poisoning mutex
-            panic!("nested calls to panic::run_and_handle_panics are not supported")
+            panic!("nested calls to panik::run_and_handle_panics are not supported")
         }
         state.panics.clear();
         state.is_running = true;

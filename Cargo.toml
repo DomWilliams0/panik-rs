@@ -1,10 +1,16 @@
 [package]
-name = "panic"
+name = "panik"
+description = "Application-wide panic handling, whereby panics occurring in any thread are treated as a hard error and can be detected by other threads to trigger a graceful exit"
 version = "0.1.0"
 authors = ["Dom Williams <me@domwillia.ms>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+repository = "https://github.com/DomWilliams0/panik-rs"
+homepage = "https://github.com/DomWilliams0/panik-rs"
+license = "MIT"
+readme = "README.md"
+keywords = ["panic", "application", "thread", "gamedev"]
+categories = ["game-engines", "game-development", "concurrency"]
 
 [dependencies]
 backtrace = "0.3"

@@ -1,3 +1,87 @@
+//! This crate enabled **application-wide panic handling**, whereby panics occurring in any thread
+//! are detected, stored and can be queried to trigger an early application exit.
+//!
+//! This goes against the standard panic behaviour where a panic is isolated to the thread that
+//! caused it. This library introduces the condition that *any panic in any thread is an error*
+//! and the application cannot continue or recover.
+//!
+//! # Use case
+//!
+//! The main use case for this crate is when a thread spawns some threads to do work, and blocks on
+//! their completion. If a worker thread panics before the result is posted, the waiting thread might get stuck in
+//! a blocking call to `recv`, unless it specifically plans and checks for this error case (e.g. poisoned
+//! mutex, disconnected mpsc sender).
+//!
+//! In a large application with thread pools and lots of types of work being posted to it all over
+//! the place (like a game engine), it can be hard to handle every panic case properly. Using
+//! this library allows the main thread to poll for panics in its core game loop and exit
+//! gracefully, rather than soldiering on without its audio/rendering/AI/worker threads.
+//!
+//!
+//! An example that doesn't use panic detection and hangs forever:
+//! ```no_run
+//! let (tx, rx) = std::sync::mpsc::channel();
+//! let worker = std::thread::spawn(move || {
+//!     // hopefully do some work...
+//!     // tx.send(5).unwrap();
+//!
+//!     // ...or panic and hold up the main thread forever
+//!     todo!()
+//! });
+//!
+//! let result: i32 = rx.recv().expect("recv failed"); // blocks forever
+//! println!("result: {}", result);
+//! ```
+//!
+//! The same example detecting and handling panics and exiting gracefully:
+//! ```should_panic
+//! # use std::time::Duration;
+//! let application_result = panic::run_and_handle_panics(|| {
+//!     let (tx, rx) = std::sync::mpsc::channel();
+//!     let worker = std::thread::spawn(move || {
+//!         // do some work...
+//!         // tx.send(5).unwrap();
+//!
+//!         // ...or panic and hold up the main thread forever
+//!         todo!()
+//!     });
+//!
+//!     // periodically check if a panic has occurred
+//!     let poll_freq = Duration::from_secs(5);
+//!     while !panic::has_panicked() {
+//!         # let poll_freq = Duration::from_secs(0);
+//!         if let Ok(res) = rx.recv_timeout(poll_freq) {
+//!             return res;
+//!         }
+//!     }
+//!
+//!     // return value is irrelevant here, the panic on the worker
+//!     // thread will clobber this when `run_and_handle_panics`
+//!     // returns None
+//!     0
+//! });
+//!
+//! match application_result {
+//!     None => {
+//!         eprintln!("something went wrong: {:?}", panic::panics());
+//!         std::process::exit(1);
+//!     },
+//!     Some(result) => {
+//!         println!("result: {}", result);
+//!         std::process::exit(0);
+//!     }
+//! }
+//! ```
+//!
+//! This looks pretty heavyweight, but this intentional - this library is meant for large
+//! and heavyweight applications!
+//!
+//! # Features
+//! * `use-stderr`: log panics to stderr
+//! * `use-log`: log panics with the `log` crate
+//! * `use-slog`: log panics with the `slog-scope` crate
+//! * `use-parking-lot`: use `parking_lot::Mutex` instead of `std::sync::Mutex`
+
 use backtrace::Backtrace;
 
 use std::borrow::Cow;
@@ -23,7 +107,7 @@ lazy_static::lazy_static! {
 struct State {
     panics: Vec<Panic>,
     backtrace_resolution_limit: usize,
-    nested_count: i8,
+    is_running: bool,
 }
 
 /// Describes a panic that has occurred.
@@ -55,7 +139,7 @@ fn register_panic(panic: &PanicInfo) {
     #[cfg(feature = "use-log")]
     log::error!("handling panic on thread {}: '{}'", thread, message);
 
-    #[cfg(all(not(feature = "use-log"), not(feature = "use-slog")))]
+    #[cfg(feature = "use-stderr")]
     eprintln!("handling panic on thread {}: '{}'", thread, message);
 
     #[cfg(feature = "use-slog")]
@@ -100,7 +184,7 @@ pub fn run_and_handle_panics_no_debug<R>(do_me: impl FnOnce() -> R + UnwindSafe)
 ///
 /// # Return value
 /// If any thread(s) panicked, `None` is returned and the offending [Panic]s are available in
-/// [panic::panics()](panics) and [panic::has_panicked()](has_panicked) until the next call to this function. Otherwise
+/// [panics] and [has_panicked] until the next call to this function. Otherwise
 /// if no panics occur, `Some(R)` is returned.
 ///
 /// # Example
@@ -148,7 +232,7 @@ fn run_and_handle_panics_with_maybe_debug<R>(
                 swallowed
             );
 
-            #[cfg(all(not(feature = "use-log"), not(feature = "use-slog")))]
+            #[cfg(feature = "use-stderr")]
             eprintln!(
                 "panic occurred in another thread, swallowing unpanicked result: {}",
                 swallowed
@@ -169,7 +253,7 @@ fn run_and_handle_panics_with_maybe_debug<R>(
     log::info!("{count} threads panicked", count = panics.len());
 
     #[cfg(all(not(feature = "use-log"), not(feature = "use-slog")))]
-    eprintln!("{count} threads panicked", count = state.len());
+    eprintln!("{count} threads panicked", count = panics.len());
 
     #[cfg(feature = "use-slog")]
     slog_scope::crit!("{count} threads panicked", count = panics.len());
@@ -197,7 +281,7 @@ fn run_and_handle_panics_with_maybe_debug<R>(
                     limit = backtrace_resolution_limit
                 );
 
-                #[cfg(all(not(feature = "use-log"), not(feature = "use-slog")))]
+                #[cfg(feature = "use-stderr")]
                 eprintln!(
                     "handling more than {limit} panics, no longer resolving backtraces",
                     limit = backtrace_resolution_limit
@@ -220,7 +304,7 @@ fn run_and_handle_panics_with_maybe_debug<R>(
             backtrace
         );
 
-        #[cfg(all(not(feature = "use-log"), not(feature = "use-slog")))]
+        #[cfg(feature = "use-stderr")]
         eprintln!(
             "panic on thread {:?}: {:?}\n{:?}",
             thread, message, backtrace
@@ -305,12 +389,12 @@ impl GlobalStateGuard {
         let mut state = state_mutex();
 
         // prevent nesting
-        if state.nested_count != 0 {
-            drop(state); // prevent deadlock in panic handler
+        if state.is_running {
+            drop(state); // avoid poisoning mutex
             panic!("nested calls to panic::run_and_handle_panics are not supported")
         }
         state.panics.clear();
-        state.nested_count += 1;
+        state.is_running = true;
 
         std::panic::set_hook(Box::new(|panic| {
             register_panic(panic);
@@ -326,7 +410,7 @@ impl Drop for GlobalStateGuard {
 
         let mut state = state_mutex();
         state.backtrace_resolution_limit = DEFAULT_BACKTRACE_RESOLUTION_LIMIT;
-        state.nested_count -= 1;
+        state.is_running = false;
     }
 }
 
@@ -335,7 +419,7 @@ impl Default for State {
         State {
             panics: Vec::new(),
             backtrace_resolution_limit: DEFAULT_BACKTRACE_RESOLUTION_LIMIT,
-            nested_count: 0,
+            is_running: false,
         }
     }
 }

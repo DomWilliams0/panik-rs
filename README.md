@@ -44,7 +44,7 @@ println!("result: {}", result);
 
 The same example detecting and handling panics and exiting gracefully:
 ```rust
-let application_result = panic::run_and_handle_panics(|| {
+let application_result = panik::run_and_handle_panics(|| {
     let (tx, rx) = std::sync::mpsc::channel();
     let worker = std::thread::spawn(move || {
         // do some work...
@@ -56,7 +56,7 @@ let application_result = panic::run_and_handle_panics(|| {
 
     // periodically check if a panic has occurred
     let poll_freq = Duration::from_secs(5);
-    while !panic::has_panicked() {
+    while !panik::has_panicked() {
         if let Ok(res) = rx.recv_timeout(poll_freq) {
             return res;
         }
@@ -70,7 +70,7 @@ let application_result = panic::run_and_handle_panics(|| {
 
 match application_result {
     None => {
-        eprintln!("something went wrong: {:?}", panic::panics());
+        eprintln!("something went wrong: {:?}", panik::panics());
         std::process::exit(1);
     },
     Some(result) => {

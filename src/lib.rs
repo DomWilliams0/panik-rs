@@ -198,7 +198,7 @@ impl Builder {
 
         #[cfg(feature = "use-slog")]
         {
-            state.slogger = self.slogger.take().unwrap_or_else(|| default_slogger());
+            state.slogger = self.slogger.take().unwrap_or_else(default_slogger);
         }
 
         state.backtrace_resolution_limit = self.backtrace_resolution_limit;
@@ -376,23 +376,22 @@ fn run_and_handle_panics_with_maybe_debug<R>(
                     "handling more than {limit} panics, no longer resolving backtraces",
                     limit = backtrace_resolution_limit
                 );
-
-                // #[cfg(feature = "use-slog")]
-                // slog::warn!(
-                //     "handling more than {limit} panics, no longer resolving backtraces",
-                //     limit = backtrace_resolution_limit
-                // );
             }
             _ => {}
         };
 
-        log_crit!(
-            &state,
-            "panic on thread {:?}: {:?}\n{:?}",
-            thread,
-            message,
-            backtrace
-        );
+        if *backtrace_resolved {
+            log_crit!(
+                &state,
+                "panic on thread {:?}: {:?}\n{:?}",
+                thread,
+                message,
+                backtrace
+            );
+        } else {
+            // dont log empty backtrace
+            log_crit!(&state, "panic on thread {:?}: {:?}", thread, message,);
+        }
     }
 
     // put panics back

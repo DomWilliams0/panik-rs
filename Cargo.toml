@@ -1,7 +1,7 @@
 [package]
 name = "panik"
 description = "Application-wide panic handling, whereby panics occurring in any thread are treated as a hard error and can be detected by other threads to trigger a graceful exit"
-version = "0.2"
+version = "0.2.0"
 authors = ["Dom Williams <me@domwillia.ms>"]
 edition = "2018"
 
